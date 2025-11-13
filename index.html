@@ -2,317 +2,399 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Professional Temperature Monitor</title>
-    <!-- Load Tailwind CSS for modern styling and responsiveness -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Chart.js for real-time graphing -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <!-- Firebase compatibility libs -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-    <style>
-        /* Custom styles for the temperature gauge effect and graph container */
-        .temp-gauge {
-            width: 250px;
-            height: 250px;
-            line-height: 250px;
-            border-radius: 50%;
-            display: inline-block;
-            box-shadow: 
-                0 0 0 10px rgba(255, 255, 255, 0.1), /* Outer Glow */
-                0 0 25px rgba(0, 0, 0, 0.5) inset; /* Inner Shadow for depth */
-            transition: all 0.5s ease-in-out;
-            font-family: 'Inter', sans-serif;
-            border: 5px solid rgba(255, 255, 255, 0.5); /* Clearer Border */
-        }
-        .temp-text {
-            font-size: 3.5rem;
-            font-weight: 800;
-        }
-        /* Body for full height and smooth dark background */
-        body {
-            min-height: 100vh;
-            background-color: #111827; /* Darker background */
-        }
-
-        /* Ensure Canvas is responsive within its container */
-        #tempChart {
-            max-width: 100%;
-            height: auto;
-        }
-    </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'normal': '#10b981', /* Emerald Green */
-                        'pre-alarm': '#fbbf24', /* Amber Yellow - slightly brighter */
-                        'alarm': '#ef4444', /* Red */
-                        'card-bg': '#1f2937', /* Darker card background */
-                        'text-light': '#f3f4f6', /* Light text on dark bg */
-                    }
-                }
-            }
-        }
-    </script>
-</head>
-<body class="bg-gray-900 flex flex-col items-center p-4 text-text-light">
-
-    <!-- Header / Title -->
-    <header class="w-full text-center py-6">
-        <h1 class="text-4xl font-extrabold text-white tracking-tight">
-            Advanced Temperature Monitor ⚙️
-        </h1>
-        <p class="text-base text-gray-400 mt-2">EV Station Fac1 | Real-time Operational Data</p>
-    </header>
-
-    <!-- Main Card Container -->
-    <div id="main-card" class="w-full max-w-sm bg-card-bg rounded-2xl shadow-xl p-8 mb-8 border-t-8 border-normal transition duration-500">
-        
-        <!-- Temperature Gauge Display -->
-        <div class="text-center mb-8">
-            <div id="gauge" class="temp-gauge text-white bg-normal mx-auto flex items-center justify-center">
-                <span id="temp" class="temp-text">-- °C</span>
-            </div>
-        </div>
-
-        <!-- Status Indicator and Last Update Time -->
-        <div class="space-y-4">
-            <div id="status-display" class="w-full text-center py-4 px-4 rounded-xl font-extrabold text-xl text-white bg-normal shadow-lg transition duration-500 transform hover:scale-[1.02]">
-                Loading Status...
-            </div>
-            <div class="flex justify-between text-sm text-gray-400 font-medium pt-2 border-t border-gray-700">
-                <span>Last Updated:</span>
-                <span id="time" class="font-bold text-gray-300">--</span>
-            </div>
-        </div>
-    </div>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Carbon Fighter Dashboard (รวมคะแนนทั้งหมด)</title>
     
-    <!-- Real-Time Chart Section -->
-    <div class="w-full max-w-lg bg-card-bg rounded-2xl shadow-xl p-6 mb-10 border-t-4 border-gray-700">
-        <h3 class="text-2xl font-semibold text-white mb-4 border-b border-gray-700 pb-2">Temperature History Analysis</h3>
-        <canvas id="tempChart"></canvas>
-        <p class="text-sm text-gray-500 text-center mt-3">Monitoring last 20 time-stamped entries for trends.</p>
-    </div>
-
-
-    <script>
-        // --- CONSTANTS & CONFIG ---
-        const NORMAL_THRESHOLD = 55.0;      // T < 55.0 is Normal
-        const PRE_ALARM_THRESHOLD = 60.0;   // 55.0 <= T < 60.0 is Pre-Alarm
-        const MAX_DATA_POINTS = 20;         // Max points to show on chart
-
-        // Colors defined in Tailwind config for consistency
-        const NORMAL_COLOR = '#10b981';
-        const PRE_ALARM_COLOR = '#fbbf24';
-        const ALARM_COLOR = '#ef4444';
-
-        // 🔥 Firebase Config (from user's original code)
-        const firebaseConfig = {
-            apiKey: "AIzaSyAFL9qfKIvQv-vX4DMQPzj62PwOZF0hY50",
-            authDomain: "temp-monitor-9b43b.firebaseapp.com",
-            databaseURL: "https://temp-monitor-9b43b-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "temp-monitor-9b43b",
-            storageBucket: "temp-monitor-9b43b.firebasestorage.app",
-            messagingSenderId: "1035092282955",
-            appId: "1:1035092282955:web:c31ffddc53ef5eeb7a07ce",
-            measurementId: "G-PHME8S0N1W"
-        };
-
-        // --- FIREBASE INITIALIZATION ---
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-        const logsRef = db.ref("logs");
-
-        // --- CHART.JS SETUP ---
-        const tempChartCtx = document.getElementById('tempChart').getContext('2d');
-        let chartGradient;
-
-        // Function to create gradient for the chart background
-        function createGradient(chartContext, color) {
-            if (!chartContext) return 'rgba(0,0,0,0.1)';
-            const gradient = chartContext.createLinearGradient(0, 0, 0, 300);
-            gradient.addColorStop(0, color.replace(')', ', 0.5)')); // Start: 50% opacity
-            gradient.addColorStop(1, color.replace(')', ', 0.05)')); // End: 5% opacity
-            return gradient;
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    
+    <style>
+        /* ... (CSS Styles remain the same) ... */
+        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;700;900&display=swap');
+        
+        :root {
+            --bg-color: #ecfdf5; 
+            --primary-color: #708800; 
+            --shadow-light: #ffffff;
+            --shadow-dark: #9ee76e; 
         }
 
-        let chartData = {
-            labels: [],
-            datasets: [{
-                label: 'Temperature (°C)',
-                data: [],
-                borderColor: '#60a5fa', // Default Blue Line
-                backgroundColor: chartGradient, // Will be set dynamically
-                tension: 0.4, // Smoother curve
-                borderWidth: 3,
-                fill: true,
-                pointRadius: 5,
-                pointBackgroundColor: '#fff',
-                pointBorderColor: '#60a5fa',
-                pointHoverRadius: 8,
-            }]
-        };
+        html, body { 
+            height: 100%; 
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Chakra Petch', sans-serif;
+            background-color: var(--bg-color); 
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 2rem;
+            min-height: 100vh;
+        }
 
-        const chartConfig = {
-            type: 'line',
-            data: chartData,
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { 
-                        mode: 'index', 
-                        intersect: false,
-                        backgroundColor: 'rgba(31, 41, 55, 0.9)', // Darker tooltip
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        borderColor: '#60a5fa',
-                        borderWidth: 1,
-                        padding: 10,
-                    }
-                },
-                scales: {
-                    x: {
-                        title: { display: true, text: 'Time (HH:MM:SS)', color: '#9ca3af' },
-                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                        ticks: { color: '#9ca3af' }
-                    },
-                    y: {
-                        title: { display: true, text: 'Temperature (°C)', color: '#9ca3af' },
-                        min: 30, 
-                        max: 70, 
-                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                        ticks: { color: '#9ca3af' }
-                    }
+        #app {
+            width: 100vw;
+            max-width: 600px; 
+            background-color: var(--bg-color); 
+            padding: 1rem; 
+            box-sizing: border-box; 
+        }
+
+        .card-panel {
+            background-color: var(--bg-color); 
+            border-radius: 1.5rem;
+            box-shadow: 
+                10px 10px 20px var(--shadow-dark), 
+                -10px -10px 20px var(--shadow-light); 
+        }
+        
+        .btn-main {
+            background-color: var(--primary-color); 
+            color: white;
+            font-weight: bold;
+            border-radius: 1rem;
+            box-shadow: 
+                4px 4px 8px rgba(4, 120, 87, 0.4), 
+                -2px -2px 4px rgba(255, 255, 255, 0.8);
+            border: none; 
+        }
+        
+        .btn-main:active {
+            box-shadow: 
+                inset 3px 3px 7px rgba(0, 0, 0, 0.25), 
+                inset -3px -3px 7px rgba(255, 255, 255, 0.5);
+            transform: scale(0.97);
+        }
+        
+        .input-recessed {
+            background-color: var(--bg-color);
+            border: none;
+            border-radius: 1rem;
+            box-shadow: 
+                inset 4px 4px 9px rgba(0, 0, 0, 0.1), 
+                inset -4px -4px 9px var(--shadow-light);
+            padding: 1rem 1.25rem;
+            text-transform: uppercase;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        #leaderboard-panel {
+            max-height: 70vh; 
+            overflow-y: auto;
+            padding: 0.75rem; 
+        }
+
+        .leaderboard-top-rank {
+            background: linear-gradient(90deg, #d1fae5 0%, #ecfdf5 100%);
+            border: 3px solid var(--primary-color) !important;
+            border-radius: 1rem !important;
+            box-shadow: 0 6px 12px rgba(4, 120, 87, 0.3); 
+            padding: 1rem !important; 
+            margin-bottom: 0.75rem !important; 
+        }
+        
+        .rank-badge {
+            display: inline-flex;
+            width: 2rem;
+            height: 2rem;
+            justify-content: center;
+            align-items: center;
+            font-weight: 900;
+            border-radius: 50%;
+            margin-right: 0.75rem;
+            background-color: #fff;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+        }
+        
+        .rank-badge.rank-1 { background-color: #ffc107; color: #856404; }
+        .rank-badge.rank-2 { background-color: #e2e6ea; color: #495057; }
+        .rank-badge.rank-3 { background-color: #fd7e14; color: #854911; }
+
+        .leaderboard-rank-item {
+            border-bottom: 1px solid #e9ecef; 
+            padding: 0.75rem 0;
+        }
+        
+    </style>
+</head>
+<body>
+    <div id="app" class="d-flex flex-column mx-auto">
+        
+        <header class="d-flex justify-content-center align-items-center p-3 card-panel mb-3 flex-shrink-0">
+            <h1 class="h4 fw-bolder text-primary mb-0">Carbon Fighter - กระดานข้อมูล</h1>
+        </header>
+        <div class="card-panel p-4 flex-grow-1">
+            <h2 class="fs-5 fw-bold text-center mb-3 text-success">🏆 ลำดับคะแนนผู้เข้าแข่งขัน (คะแนนรวม)</h2>
+            
+            <button id="export-excel-button" class="btn btn-main w-100 py-3 fs-5 mb-3">
+                ⬇️ โหลดไฟล์ Excel (ข้อมูลรวมคะแนน)
+            </button>
+            
+            <input type="text" id="leaderboard-search" placeholder="กรอกรหัสพนักงานเพื่อค้นหา (xxxx)" maxlength="10" class="form-control mb-3 input-recessed fs-6">
+            
+            <div id="leaderboard-panel">
+                <ul id="leaderboard-list" class="list-unstyled mb-0">
+                    <li class="text-center text-muted p-2">กำลังโหลดข้อมูล...</li>
+                </ul>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+        <script type="module">
+            // --- Firebase Core Imports ---
+            import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+            import { 
+                getFirestore, 
+                onSnapshot, 
+                collection, 
+                query, 
+                orderBy,
+                where,          
+                setLogLevel 
+            } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+            // *******************************************************************
+            // 🚨 สำคัญมาก: กรุณาแทนที่ค่าเหล่านี้ด้วย Firebase Config ของคุณ 
+            // *******************************************************************
+            const firebaseConfig = {
+                apiKey: "AIzaSyDmjcXHZz3glB6hffzsgZeVzpMx48FutXw",
+                authDomain: "game-8ad3f.firebaseapp.com",
+                projectId: "game-8ad3f",
+                storageBucket: "game-8ad3f.firebaseapp.com",
+                messagingSenderId: "1076950258243",
+                appId: "1:1076950258243:web:e65a0ac6f51aa9bc4b3af6",
+                measurementId: "G-0M2L8HX0D2"
+            };
+            // *******************************************************************
+            
+            setLogLevel('Debug');
+
+            let db;
+            let appId = firebaseConfig.appId;
+            let allRanks = []; // จะเก็บข้อมูลที่รวมคะแนนแล้ว
+
+            // DOM Element References
+            const dom = {
+                leaderboardList: document.getElementById('leaderboard-list'),
+                leaderboardSearch: document.getElementById('leaderboard-search'),
+                exportExcelButton: document.getElementById('export-excel-button'),
+            };
+
+            // --- Firebase/Leaderboard Logic ---
+            
+            /**
+             * สร้างและดาวน์โหลดไฟล์ CSV (Excel Compatible)
+             */
+            function exportLeaderboardToCSV() {
+                if (allRanks.length === 0) {
+                    alert('ไม่มีข้อมูลคะแนนในกระดานจัดอันดับให้ดาวน์โหลด');
+                    return;
                 }
-            }
-        };
 
-        const tempChart = new Chart(tempChartCtx, chartConfig);
-
-        // --- HELPER FUNCTION: GET STATUS AND STYLES ---
-        function getStatus(temp) {
-            let status = { text: "", class: "", borderClass: "", color: '#60a5fa' }; // Default color is a nice blue
-
-            if (temp >= PRE_ALARM_THRESHOLD) { // T >= 60
-                status.text = "🚨 ALARM CRITICAL (สูงกว่า 60°C)";
-                status.class = "bg-alarm shadow-alarm/50";
-                status.borderClass = "border-alarm";
-                status.color = ALARM_COLOR;
-            } else if (temp >= NORMAL_THRESHOLD) { // 55 <= T < 60
-                status.text = "⚠️ PRE-ALARM WARNING (55°C - 60°C)";
-                status.class = "bg-pre-alarm shadow-pre-alarm/50";
-                status.borderClass = "border-pre-alarm";
-                status.color = PRE_ALARM_COLOR;
-            } else { // T < 55
-                status.text = "✅ NORMAL OPERATING (ต่ำกว่า 55°C)";
-                status.class = "bg-normal shadow-normal/50";
-                status.borderClass = "border-normal";
-                status.color = NORMAL_COLOR;
-            }
-            return status;
-        }
-
-        // --- UPDATE UI FUNCTION ---
-        function updateUI(temperature, timestamp) {
-            const tempEl = document.getElementById("temp");
-            const statusEl = document.getElementById("status-display");
-            const gaugeEl = document.getElementById("gauge");
-            const cardEl = document.getElementById("main-card");
-            const timeEl = document.getElementById("time");
-
-            // 1. Update Temperature and Status
-            const temp = parseFloat(temperature);
-            const status = getStatus(temp);
-
-            tempEl.innerText = temp.toFixed(1) + " °C";
-
-            // 2. Apply status styles
-            statusEl.innerText = status.text;
-            statusEl.className = "w-full text-center py-4 px-4 rounded-xl font-extrabold text-xl text-white shadow-lg transition duration-500 transform hover:scale-[1.02] " + status.class;
-            
-            // 3. Update Gauge and Card color
-            gaugeEl.className = "temp-gauge mx-auto flex items-center justify-center text-white transition duration-500 " + status.class;
-            cardEl.className = "w-full max-w-sm bg-card-bg rounded-2xl shadow-xl p-8 mb-8 border-t-8 transition duration-500 " + status.borderClass;
-
-            // 4. Update Chart Line and Fill Color based on current status
-            tempChart.data.datasets[0].borderColor = status.color;
-            tempChart.data.datasets[0].pointBorderColor = status.color;
-            tempChart.data.datasets[0].backgroundColor = createGradient(tempChartCtx, status.color);
-            tempChart.update();
-            
-            // 5. Update Time
-            // Format timestamp: 2024-01-01T12:30:00 -> 01 Jan 2024 12:30:00
-            const date = new Date(timestamp);
-            timeEl.innerText = date.toLocaleString('th-TH', { 
-                day: '2-digit', month: 'short', year: 'numeric', 
-                hour: '2-digit', minute: '2-digit', second: '2-digit' 
-            }).replace(' ', ' ');
-        }
-
-        // --- UPDATE CHART FUNCTION ---
-        function updateChart(data) {
-            // Add new data point
-            chartData.labels.push(data.timestamp.substring(11, 19)); // Use HH:mm:ss for graph X-axis
-            chartData.datasets[0].data.push(data.temperature);
-
-            // Keep only the last MAX_DATA_POINTS
-            if (chartData.labels.length > MAX_DATA_POINTS) {
-                chartData.labels.shift();
-                chartData.datasets[0].data.shift();
-            }
-
-            tempChart.update();
-        }
-
-        // --- INITIAL DATA FETCH FOR CHART HISTORY ---
-        logsRef.limitToLast(MAX_DATA_POINTS).once("value", (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                const history = Object.keys(data).map(key => ({
-                    timestamp: key,
-                    temperature: data[key].temperature
-                }));
-
-                // Clear previous data
-                chartData.labels = [];
-                chartData.datasets[0].data = [];
-
-                history.forEach(d => {
-                    chartData.labels.push(d.timestamp.substring(11, 19));
-                    chartData.datasets[0].data.push(d.temperature);
+                const ranks = allRanks;
+                
+                // 1. กำหนด Header และ BOM (Byte Order Mark) สำหรับภาษาไทยใน Excel
+                let csvContent = "\uFEFF"; // UTF-8 BOM
+                // 🚨 เปลี่ยน Header ให้ระบุว่าเป็นคะแนนรวม
+                csvContent += "อันดับ,รหัสพนักงาน,คะแนนรวม,วันที่บันทึกครั้งล่าสุด\n";
+                
+                // 2. เพิ่มข้อมูลแต่ละแถว
+                ranks.forEach((rank, index) => {
+                    const rankNumber = index + 1; 
+                    // ใช้ rank.timestamp ซึ่งตอนนี้คือ lastSubmission
+                    const formattedDate = rank.timestamp.toLocaleString('th-TH', { 
+                        year: 'numeric', month: '2-digit', day: '2-digit', 
+                        hour: '2-digit', minute: '2-digit', second: '2-digit' 
+                    });
+                    
+                    const row = [
+                        rankNumber, 
+                        rank.employeeId, 
+                        rank.score, // score คือ Total Score
+                        formattedDate
+                    ];
+                    // Escape values เพื่อจัดการเครื่องหมาย , หรือ " ในข้อมูล
+                    const escapedRow = row.map(value => `"${String(value).replace(/"/g, '""')}"`);
+                    csvContent += escapedRow.join(',') + "\n";
                 });
 
-                // Get the very last item from history to update the main display and set initial colors
-                const lastEntry = history[history.length - 1];
-                updateUI(lastEntry.temperature, lastEntry.timestamp);
-            }
-        });
-
-        // --- REAL-TIME LISTENER (Listens only for new child additions) ---
-        logsRef.limitToLast(1).on("child_added", (snapshot) => {
-            const timestampKey = snapshot.key;
-            const data = snapshot.val();
-            
-            if (data && data.temperature) {
-                const newReading = {
-                    timestamp: timestampKey,
-                    temperature: data.temperature
-                };
+                // 3. สร้าง Blob และ Download File
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
                 
-                // Only update if the data key is not already in the chart (to prevent duplicates during initial load)
-                if (!chartData.labels.includes(newReading.timestamp.substring(11, 19))) {
-                    updateChart(newReading);
+                const a = document.createElement('a');
+                a.setAttribute('href', url);
+                const date = new Date().toISOString().slice(0, 10); 
+                a.setAttribute('download', `Leaderboard_TotalScore_${date}.csv`);
+                
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a); 
+                URL.revokeObjectURL(url); 
+            }
+            
+            /**
+             * แสดงผลอันดับบนหน้าเว็บ พร้อมตัวกรอง (Filter)
+             */
+            function renderLeaderboard(filterId = '') {
+                const list = dom.leaderboardList;
+                list.innerHTML = ''; 
+                
+                let filteredRanks = allRanks;
+                
+                if (filterId) {
+                    filteredRanks = allRanks.filter(rank => rank.employeeId.includes(filterId));
+                }
+
+                if (filteredRanks.length === 0) {
+                    list.innerHTML = `<li class="text-center text-muted p-3">${filterId ? `ไม่พบรหัสพนักงาน "${filterId}"` : 'ยังไม่มีผู้ทำคะแนน'}</li>`;
+                    return;
+                }
+
+                const displayRanks = filteredRanks.slice(0, 100); 
+
+                displayRanks.forEach((rank, index) => {
+                    const rankNumber = index + 1;
+                    
+                    let itemClass = `d-flex justify-content-between align-items-center font-monospace`;
+                    if (rankNumber <= 3) {
+                        itemClass += ' leaderboard-top-rank';
+                    } else {
+                        itemClass += ' leaderboard-rank-item';
+                    }
+
+                    const listItem = document.createElement('li');
+                    listItem.className = itemClass;
+                    
+                    let rankBadgeClass = 'rank-badge';
+                    let rankText = rankNumber;
+                    let scoreColor = 'text-primary';
+
+                    if (rankNumber === 1) { 
+                        rankBadgeClass += ' rank-1';
+                        rankText = '🥇';
+                        scoreColor = 'text-danger'; 
+                    } else if (rankNumber === 2) { 
+                        rankBadgeClass += ' rank-2';
+                        rankText = '🥈';
+                    } else if (rankNumber === 3) { 
+                        rankBadgeClass += ' rank-3';
+                        rankText = '🥉';
+                    }
+
+                    listItem.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <span class="${rankBadgeClass}">${rankText}</span>
+                            <span class="fs-6 fw-bold text-dark">${rank.employeeId}</span>
+                        </div>
+                        <span class="fs-5 fw-black ${scoreColor}">
+                            ${rank.score}
+                        </span>
+                    `;
+                    list.appendChild(listItem);
+                });
+            }
+            
+            /**
+             * ตั้งค่าการเชื่อมต่อและดึงข้อมูลอันดับแบบ Real-time
+             * 💥 Aggregation Logic: Group by employeeId and Sum Scores
+             */
+            function setupLeaderboard() {
+                if (!db) {
+                    dom.leaderboardList.innerHTML = '<li class="text-center text-danger p-2">ไม่สามารถเชื่อมต่อฐานข้อมูลได้</li>';
+                    return;
                 }
                 
-                // Always update the main UI with the latest data and dynamic chart colors
-                updateUI(newReading.temperature, newReading.timestamp);
+                // Path: /artifacts/{appId}/public/data/carbon_game_rankings
+                const collectionRef = collection(db, "artifacts", appId, "public", "data", "carbon_game_rankings");
+                
+                // Query: เรียงตาม timestamp ASC เพื่อใช้ Index เก่าของคุณ 
+                // และดึงข้อมูลทั้งหมดมาประมวลผลใน JavaScript
+                const q = query(
+                    collectionRef,
+                    orderBy("timestamp", "asc") 
+                );
+
+                // Real-time listener
+                onSnapshot(q, (querySnapshot) => {
+                    const aggregatedRanks = {};
+
+                    // 1. Group by employeeId and Sum Scores
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        const id = data.employeeId;
+                        const score = data.score || 0;
+                        const submissionTime = data.timestamp ? data.timestamp.toDate() : new Date(0); // ใช้วันที่ที่ถูกต้อง
+
+                        if (id && score > 0) {
+                            if (!aggregatedRanks[id]) {
+                                // Initialize if first record for this employeeId
+                                aggregatedRanks[id] = {
+                                    employeeId: id,
+                                    score: 0, // 🚨 score field will hold the TOTAL score
+                                    timestamp: submissionTime // 🚨 timestamp will hold the LAST submission time
+                                };
+                            }
+                            
+                            // Sum the scores
+                            aggregatedRanks[id].score += score;
+                            
+                            // Update last submission time (ใช้สำหรับ Tie-breaker)
+                            if (submissionTime > aggregatedRanks[id].timestamp) {
+                                aggregatedRanks[id].timestamp = submissionTime;
+                            }
+                        }
+                    });
+
+                    // 2. Convert to Array and Sort
+                    let finalRanks = Object.values(aggregatedRanks);
+
+                    finalRanks.sort((a, b) => {
+                        if (b.score !== a.score) {
+                            return b.score - a.score; // 💥 เรียงตามคะแนนรวม (Total Score) DESC
+                        }
+                        // Tie-breaker: เรียงตามเวลาบันทึกครั้งล่าสุด ASC (ใครทำคะแนนรวมเท่ากันก่อน ได้อันดับดีกว่า)
+                        return a.timestamp.getTime() - b.timestamp.getTime(); 
+                    });
+
+
+                    allRanks = finalRanks; // เก็บผลลัพธ์ที่รวมและเรียงแล้ว
+                    renderLeaderboard(dom.leaderboardSearch.value.trim()); 
+                }, (error) => {
+                    console.error("Leaderboard snapshot error:", error);
+                    dom.leaderboardList.innerHTML = '<li class="text-center text-danger p-2">เกิดข้อผิดพลาดในการโหลดอันดับ: ' + error.message + ' (โปรดตรวจสอบ Security Rules)</li>';
+                });
             }
-        });
-    </script>
+
+            function bindEvents() {
+                dom.leaderboardSearch.addEventListener('input', (e) => {
+                    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                    const filterId = e.target.value.trim();
+                    renderLeaderboard(filterId);
+                });
+                
+                dom.exportExcelButton.addEventListener('click', exportLeaderboardToCSV); 
+            }
+            
+            // --- Initialization ---
+            if (firebaseConfig.projectId && firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY_HERE") {
+                try {
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    
+                    bindEvents();
+                    setupLeaderboard();
+                } catch(e) {
+                    console.error("Firebase Initialization Failed:", e);
+                    dom.leaderboardList.innerHTML = '<li class="text-center text-danger p-2">ไม่สามารถเชื่อมต่อ Firebase ได้ (โปรดตรวจสอบ Config)</li>';
+                }
+            } else {
+                dom.leaderboardList.innerHTML = '<li class="text-center text-danger p-2">กรุณาใส่ Firebase Config ในโค้ด</li>';
+            }
+            
+        </script>
+        </div>
 </body>
 </html>
